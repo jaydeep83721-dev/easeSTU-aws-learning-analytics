@@ -46,3 +46,4 @@ __pycache__/
 *.tsbuildinfo
 leaks.txt
 *.zip
+.env.local
