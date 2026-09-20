@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  FrontendOrigin: {Type: String}
+  BedrockModelId: {Type: String}
+  BedrockResourceArn: {Type: String}
+Resources:
+  Pool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      AdminCreateUserConfig: {AllowAdminCreateUserOnly: true}
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      Policies:
+        PasswordPolicy: {MinimumLength: 12, RequireUppercase: true, RequireLowercase: true, RequireNumbers: true, RequireSymbols: true}
+  Client:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref Pool
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+  Data:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: pk, AttributeType: S}, {AttributeName: sk, AttributeType: S}]
+      KeySchema: [{AttributeName: pk, KeyType: HASH}, {AttributeName: sk, KeyType: RANGE}]
+      SSESpecification: {SSEEnabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+  Files:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration: {BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: [{ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}}]
+      CorsConfiguration:
+        CorsRules: [{AllowedOrigins: [!Ref FrontendOrigin], AllowedMethods: [POST, GET], AllowedHeaders: ['*'], MaxAge: 600}]
+  FilesPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Files
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource: [!GetAtt Files.Arn, !Sub '${Files.Arn}/*']
+            Condition: {Bool: {'aws:SecureTransport': false}}
+  Api:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins: [!Ref FrontendOrigin]
+        AllowHeaders: [authorization, content-type]
+        AllowMethods: [GET, POST, OPTIONS]
+      Auth:
+        DefaultAuthorizer: SchoolJWT
+        Authorizers:
+          SchoolJWT:
+            IdentitySource: '$request.header.Authorization'
+            JwtConfiguration:
+              audience: [!Ref Client]
+              issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${Pool}'
+  Backend:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: app.handler
+      Runtime: python3.12
+      MemorySize: 512
+      Timeout: 29
+      Environment:
+        Variables: {TABLE: !Ref Data, BUCKET: !Ref Files, MODEL: !Ref BedrockModelId}
+      Policies:
+        - DynamoDBCrudPolicy: {TableName: !Ref Data}
+        - S3CrudPolicy: {BucketName: !Ref Files}
+        - Statement:
+            - Effect: Allow
+              Action: bedrock:InvokeModel
+              Resource: !Ref BedrockResourceArn
+      Events:
+        Routes:
+          Type: HttpApi
+          Properties: {ApiId: !Ref Api, Path: '/{proxy+}', Method: ANY}
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${Backend}'
+      RetentionInDays: 14
+Outputs:
+  ApiUrl: {Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.amazonaws.com'}
+  UserPoolId: {Value: !Ref Pool}
+  ClientId: {Value: !Ref Client}
+  TableName: {Value: !Ref Data}
+  BucketName: {Value: !Ref Files}

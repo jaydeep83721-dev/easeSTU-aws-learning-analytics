@@ -1,0 +1,2 @@
+/** Integration boundary; getToken must return a Cognito token, never an AWS secret key. */
+export function createAwsClient(base:string,getToken:()=>Promise<string>){return async function request(path:string,body?:unknown){const r=await fetch(base.replace(/\/$/,'')+path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+await getToken(),'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});const data=await r.json() as {error?:string};if(!r.ok)throw Error(data.error||'Request failed');return data}}
