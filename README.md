@@ -40,3 +40,42 @@ See aws/README.md. SAM and Python source are supplied as an integration foundati
 ## Verification
 
 The standard Next.js production build and TypeScript checks pass. Python scoring tests cover blanks, invalid answers and intervention boundaries.
+
+
+## AWS Deployment & Backend Status
+
+### Backend Implementation
+
+A significant portion of the backend was implemented during the hackathon, including an API for *generating test questions* based on the application's requirements.
+
+The backend also included integrations with:
+
+- *Amazon DynamoDB* — for storing application and assessment data
+- *Amazon S3* — for storing files and resources
+- *Question Generation API* — for generating test questions
+- Other supporting backend APIs required for the application workflow
+
+### AWS Access Limitation
+
+During development, our team faced an AWS account-access limitation. Out of four team members, only two received full AWS access, while the other two could not obtain the required permissions in time.
+
+The main limitation was *Amazon Bedrock Agent access*. The required Bedrock functionality was under AWS verification, which took approximately two days. Since our hackathon deadline was approaching, we were unable to complete the verification and integrate the Bedrock Agent within the available time.
+
+### Workflow Limitation
+
+Our intended workflow was:
+
+```text
+User
+  ↓
+Frontend
+  ↓
+Backend API
+  ↓
+Question Generation / Data Processing
+  ↓
+Amazon Bedrock Agent
+  ↓
+AI Analysis / Response
+  ↓
+Frontend
