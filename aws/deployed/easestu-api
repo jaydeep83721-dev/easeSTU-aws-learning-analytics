@@ -1,0 +1,775 @@
+import base64
+import json
+import os
+import uuid
+from datetime import datetime, timezone
+from decimal import Decimal
+
+import boto3
+from boto3.dynamodb.conditions import Key
+
+
+TABLE_NAME = os.environ["TABLE"]
+S3_BUCKET = os.environ["S3_BUCKET"]
+FRONTEND_ORIGIN = "https://main.d2v5l64r6u38tw.amplifyapp.com"
+
+dynamodb = boto3.resource("dynamodb")
+table = dynamodb.Table(TABLE_NAME)
+s3 = boto3.client("s3")
+
+
+class ApiError(Exception):
+    def __init__(self, message, status=400):
+        self.message = message
+        self.status = status
+        super().__init__(message)
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def json_default(value):
+    if isinstance(value, Decimal):
+        return int(value) if value % 1 == 0 else float(value)
+    raise TypeError
+
+
+def response(status, data):
+    return {
+        "statusCode": status,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": FRONTEND_ORIGIN
+        },
+        "body": json.dumps(data, default=json_default)
+    }
+
+
+def get_body(event):
+    body = event.get("body")
+
+    if not body:
+        return {}
+
+    if event.get("isBase64Encoded"):
+        body = base64.b64decode(body).decode("utf-8")
+
+    if isinstance(body, dict):
+        return body
+
+    return json.loads(body)
+
+
+def get_action(event, body):
+    query = event.get("queryStringParameters") or {}
+    return body.get("action") or query.get("action") or "health"
+
+
+def get_groups(event):
+    claims = (
+        event.get("requestContext", {})
+        .get("authorizer", {})
+        .get("jwt", {})
+        .get("claims", {})
+    )
+
+    groups = claims.get("cognito:groups", [])
+
+    if isinstance(groups, str):
+        groups = [group.strip() for group in groups.split(",")]
+
+    return groups
+
+
+def require_role(event, allowed_roles):
+    # Console test events have no HTTP request context.
+    if "requestContext" not in event:
+        return
+
+    groups = get_groups(event)
+
+    if not any(role in groups for role in allowed_roles):
+        raise ApiError("You do not have permission for this action", 403)
+
+
+def create_upload_url(event, body):
+    require_role(event, ["TEACHER", "PRINCIPAL"])
+
+    test_id = str(body.get("testId", "")).strip()
+
+    if not test_id:
+        raise ApiError("testId is required")
+
+    upload_id = str(uuid.uuid4())
+    object_key = f"uploads/{test_id}/{upload_id}.pdf"
+
+    upload_url = s3.generate_presigned_url(
+        "put_object",
+        Params={
+            "Bucket": S3_BUCKET,
+            "Key": object_key,
+            "ContentType": "application/pdf"
+        },
+        ExpiresIn=900
+    )
+
+    table.put_item(
+        Item={
+            "pk": f"TEST#{test_id}",
+            "sk": f"UPLOAD#{upload_id}",
+            "entityType": "UPLOAD",
+            "testId": test_id,
+            "uploadId": upload_id,
+            "status": "AWAITING_UPLOAD",
+            "s3Bucket": S3_BUCKET,
+            "s3Key": object_key,
+            "createdAt": now_iso()
+        }
+    )
+
+    return {
+        "uploadId": upload_id,
+        "objectKey": object_key,
+        "uploadUrl": upload_url,
+        "expiresInSeconds": 900
+    }
+
+
+def create_test(event, body):
+    require_role(event, ["TEACHER", "PRINCIPAL"])
+
+    test_id = str(body.get("testId") or uuid.uuid4()).strip()
+    title = str(body.get("title", "")).strip()
+    subject = str(body.get("subject", "")).strip()
+    class_name = str(body.get("className", "")).strip()
+    questions = body.get("questions", [])
+
+    if not title:
+        raise ApiError("title is required")
+
+    if not subject:
+        raise ApiError("subject is required")
+
+    if not isinstance(questions, list) or not questions:
+        raise ApiError("questions must contain at least one question")
+
+    cleaned_questions = []
+
+    for index, question in enumerate(questions):
+        answer = str(
+            question.get("answer")
+            or question.get("correctAnswer")
+            or ""
+        ).upper()
+
+        if answer not in ["A", "B", "C", "D"]:
+            raise ApiError(
+                f"Question {index + 1} must have answer A, B, C or D"
+            )
+
+        cleaned_question = {
+            "number": index + 1,
+            "text": str(
+                question.get("text")
+                or question.get("question")
+                or ""
+            ),
+            "topic": str(question.get("topic", "General")),
+            "answer": answer
+        }
+
+        if not cleaned_question["text"]:
+            raise ApiError(
+                f"Question {index + 1} must contain question text"
+            )
+
+        for optional_field in [
+            "options", "explanation", "difficulty"
+        ]:
+            if question.get(optional_field):
+                cleaned_question[optional_field] = question[optional_field]
+
+        cleaned_questions.append(cleaned_question)
+
+    item = {
+        "pk": f"TEST#{test_id}",
+        "sk": "META",
+        "entityType": "TEST",
+        "testId": test_id,
+        "title": title,
+        "subject": subject,
+        "className": class_name,
+        "questions": cleaned_questions,
+        "totalQuestions": len(cleaned_questions),
+        "status": "ACTIVE",
+        "createdAt": now_iso(),
+        "updatedAt": now_iso()
+    }
+
+    table.put_item(Item=item)
+
+    return {
+        "message": "Test created successfully",
+        "test": item
+    }
+
+
+def get_test(event, body):
+    require_role(event, ["TEACHER", "PRINCIPAL"])
+
+    test_id = str(body.get("testId", "")).strip()
+
+    if not test_id:
+        raise ApiError("testId is required")
+
+    result = table.get_item(
+        Key={
+            "pk": f"TEST#{test_id}",
+            "sk": "META"
+        }
+    )
+
+    item = result.get("Item")
+
+    if not item:
+        raise ApiError("Test not found", 404)
+
+    return {"test": item}
+
+
+def score_student(event, body):
+    require_role(event, ["TEACHER", "PRINCIPAL"])
+
+    test_id = str(body.get("testId", "")).strip()
+    student_id = str(body.get("studentId", "")).strip()
+    student_name = str(body.get("studentName", "")).strip()
+    answers = body.get("answers", [])
+
+    if not test_id or not student_id:
+        raise ApiError("testId and studentId are required")
+
+    test_result = table.get_item(
+        Key={
+            "pk": f"TEST#{test_id}",
+            "sk": "META"
+        }
+    )
+
+    test = test_result.get("Item")
+
+    if not test:
+        raise ApiError("Test not found", 404)
+
+    questions = test["questions"]
+
+    if not isinstance(answers, list):
+        raise ApiError("answers must be a list")
+
+    normalized_answers = [
+        str(answer).upper() if answer else ""
+        for answer in answers
+    ]
+
+    correct_count = 0
+    topic_breakdown = {}
+
+    for index, question in enumerate(questions):
+        selected = (
+            normalized_answers[index]
+            if index < len(normalized_answers)
+            else ""
+        )
+
+        correct_answer = question["answer"]
+        topic = question.get("topic", "General")
+        is_correct = selected == correct_answer
+
+        if is_correct:
+            correct_count += 1
+
+        if topic not in topic_breakdown:
+            topic_breakdown[topic] = {
+                "correct": 0,
+                "total": 0
+            }
+
+        topic_breakdown[topic]["total"] += 1
+
+        if is_correct:
+            topic_breakdown[topic]["correct"] += 1
+
+    total = len(questions)
+    percentage = round((correct_count / total) * 100, 2)
+
+    category = (
+        "STRONG"
+        if percentage >= 75
+        else "AVERAGE"
+        if percentage >= 50
+        else "NEEDS_SUPPORT"
+    )
+
+    item = {
+        "pk": f"TEST#{test_id}",
+        "sk": f"RESULT#{student_id}",
+        "entityType": "RESULT",
+        "testId": test_id,
+        "studentId": student_id,
+        "studentName": student_name,
+        "answers": normalized_answers,
+        "correctAnswers": correct_count,
+        "totalQuestions": total,
+        "percentage": Decimal(str(percentage)),
+        "category": category,
+        "topicBreakdown": topic_breakdown,
+        "createdAt": now_iso()
+    }
+
+    table.put_item(Item=item)
+
+    return {
+        "message": "Student scored successfully",
+        "result": item
+    }
+
+
+def get_results(event, body):
+    require_role(event, ["TEACHER", "PRINCIPAL"])
+
+    test_id = str(body.get("testId", "")).strip()
+
+    if not test_id:
+        raise ApiError("testId is required")
+
+    result = table.query(
+        KeyConditionExpression=(
+            Key("pk").eq(f"TEST#{test_id}")
+            & Key("sk").begins_with("RESULT#")
+        )
+    )
+
+    return {
+        "testId": test_id,
+        "results": result.get("Items", [])
+    }
+
+
+def get_analytics(event, body):
+    require_role(event, ["TEACHER", "PRINCIPAL"])
+
+    test_id = str(body.get("testId", "")).strip()
+
+    if not test_id:
+        raise ApiError("testId is required")
+
+    result = table.query(
+        KeyConditionExpression=(
+            Key("pk").eq(f"TEST#{test_id}")
+            & Key("sk").begins_with("RESULT#")
+        )
+    )
+
+    results = result.get("Items", [])
+
+    if not results:
+        return {
+            "testId": test_id,
+            "studentsParticipated": 0,
+            "averagePercentage": 0,
+            "highestPercentage": 0,
+            "lowestPercentage": 0,
+            "topicAnalytics": []
+        }
+
+    percentages = [
+        float(item.get("percentage", 0))
+        for item in results
+    ]
+
+    topics = {}
+
+    for student_result in results:
+        for topic, values in student_result.get(
+            "topicBreakdown", {}
+        ).items():
+            if topic not in topics:
+                topics[topic] = {
+                    "correct": 0,
+                    "total": 0
+                }
+
+            topics[topic]["correct"] += int(values["correct"])
+            topics[topic]["total"] += int(values["total"])
+
+    topic_analytics = []
+
+    for topic, values in topics.items():
+        success_rate = round(
+            (values["correct"] / values["total"]) * 100,
+            2
+        )
+
+        topic_analytics.append({
+            "topic": topic,
+            "correct": values["correct"],
+            "total": values["total"],
+            "successRate": success_rate,
+            "status": (
+                "STRONG"
+                if success_rate >= 75
+                else "AVERAGE"
+                if success_rate >= 50
+                else "WEAK"
+            )
+        })
+
+    return {
+        "testId": test_id,
+        "studentsParticipated": len(results),
+        "averagePercentage": round(
+            sum(percentages) / len(percentages), 2
+        ),
+        "highestPercentage": max(percentages),
+        "lowestPercentage": min(percentages),
+        "strongStudents": sum(
+            1 for item in results
+            if item.get("category") == "STRONG"
+        ),
+        "averageStudents": sum(
+            1 for item in results
+            if item.get("category") == "AVERAGE"
+        ),
+        "studentsNeedingSupport": sum(
+            1 for item in results
+            if item.get("category") == "NEEDS_SUPPORT"
+        ),
+        "topicAnalytics": topic_analytics
+    }
+
+def generate_mcqs(event, body):
+    subject = str(body.get("subject", "Mathematics")).strip()
+    class_name = str(body.get("className", "Class 6")).strip()
+    chapters = body.get("chapters", ["Fractions"])
+    try:
+        question_count = int(body.get("questionCount", 3))
+    except (TypeError, ValueError):
+        raise ApiError("questionCount must be a number")
+
+    if isinstance(chapters, str):
+        chapters = [chapters]
+
+    question_count = max(1, min(question_count, 10))
+
+    question_bank = [
+        {
+            "subject": "Mathematics",
+            "chapter": "Fractions",
+            "question": "Which fraction is equivalent to 1/2?",
+            "options": {
+                "A": "2/3",
+                "B": "2/4",
+                "C": "3/4",
+                "D": "1/3"
+            },
+            "correctAnswer": "B",
+            "topic": "Equivalent Fractions",
+            "explanation": "Multiplying the numerator and denominator of 1/2 by 2 gives 2/4.",
+            "difficulty": "Easy"
+        },
+        {
+            "subject": "Mathematics",
+            "chapter": "Fractions",
+            "question": "What is 1/4 + 2/4?",
+            "options": {
+                "A": "3/4",
+                "B": "3/8",
+                "C": "2/8",
+                "D": "1/2"
+            },
+            "correctAnswer": "A",
+            "topic": "Adding Fractions",
+            "explanation": "When denominators are equal, add the numerators: 1 + 2 = 3.",
+            "difficulty": "Easy"
+        },
+        {
+            "subject": "Mathematics",
+            "chapter": "Fractions",
+            "question": "Which is the greatest fraction?",
+            "options": {
+                "A": "1/5",
+                "B": "1/4",
+                "C": "1/3",
+                "D": "1/2"
+            },
+            "correctAnswer": "D",
+            "topic": "Comparing Fractions",
+            "explanation": "For unit fractions, a smaller denominator represents a larger fraction.",
+            "difficulty": "Medium"
+        },
+        {
+            "subject": "Mathematics",
+            "chapter": "Fractions",
+            "question": "A pizza has 8 equal slices. Riya eats 3 slices. What fraction remains?",
+            "options": {
+                "A": "3/8",
+                "B": "5/8",
+                "C": "5/3",
+                "D": "8/5"
+            },
+            "correctAnswer": "B",
+            "topic": "Fraction Applications",
+            "explanation": "Five of the eight slices remain, so the remaining fraction is 5/8.",
+            "difficulty": "Medium"
+        },
+        {
+            "subject": "Mathematics",
+            "chapter": "Fractions",
+            "question": "What is 3/4 - 1/4?",
+            "options": {
+                "A": "1/4",
+                "B": "2/4",
+                "C": "3/8",
+                "D": "4/4"
+            },
+            "correctAnswer": "B",
+            "topic": "Subtracting Fractions",
+            "explanation": "Subtract the numerators: 3 - 1 = 2, giving 2/4 or 1/2.",
+            "difficulty": "Easy"
+        },
+        {
+            "subject": "Mathematics",
+            "chapter": "Fractions",
+            "question": "Which improper fraction equals 1 1/2?",
+            "options": {
+                "A": "2/3",
+                "B": "3/2",
+                "C": "1/2",
+                "D": "4/3"
+            },
+            "correctAnswer": "B",
+            "topic": "Mixed Fractions",
+            "explanation": "Multiply 1 by 2 and add 1, giving 3/2.",
+            "difficulty": "Medium"
+        }
+    ]
+
+    selected_chapters = {
+        str(chapter).strip().lower()
+        for chapter in chapters
+    }
+
+    matching_questions = [
+        question
+        for question in question_bank
+        if question["subject"].lower() == subject.lower()
+        and question["chapter"].lower() in selected_chapters
+    ]
+
+    if not matching_questions:
+        return {
+            "success": True,
+            "source": "teacher-question-bank",
+            "subject": subject,
+            "className": class_name,
+            "chapters": chapters,
+            "questions": [],
+            "message": (
+                "No saved questions are available for this chapter. "
+                "The teacher can add questions manually."
+            )
+        }
+
+    questions = []
+
+    for index, question in enumerate(
+        matching_questions[:question_count],
+        start=1
+    ):
+        clean_question = dict(question)
+        clean_question.pop("subject", None)
+        clean_question.pop("chapter", None)
+        clean_question["questionId"] = f"Q{index}"
+        questions.append(clean_question)
+
+    return {
+        "success": True,
+        "source": "curated-question-bank",
+        "subject": subject,
+        "className": class_name,
+        "chapters": chapters,
+        "questionCount": len(questions),
+        "questions": questions
+    }
+
+
+def generate_teaching_suggestions(event, body):
+    require_role(event, ["TEACHER", "PRINCIPAL"])
+
+    test_id = str(body.get("testId", "")).strip()
+
+    if not test_id:
+        raise ApiError("testId is required")
+
+    analytics = get_analytics(event, {"testId": test_id})
+
+    if analytics["studentsParticipated"] == 0:
+        raise ApiError(
+            "No student results are available for this test",
+            400
+        )
+
+    suggestions = []
+
+    for topic in analytics["topicAnalytics"]:
+        topic_name = topic.get("topic", "General")
+        success_rate = float(topic.get("successRate", 0))
+
+        if success_rate < 40:
+            priority = "HIGH"
+            audience = "WHOLE_CLASS"
+            activity = (
+                f"Revisit {topic_name} using a real-life example, "
+                "then conduct a short guided practice activity."
+            )
+            analogy = (
+                f"Connect {topic_name} to familiar objects or an "
+                "everyday classroom situation."
+            )
+        elif success_rate < 60:
+            priority = "MEDIUM"
+            audience = "SMALL_GROUP"
+            activity = (
+                f"Arrange a focused small-group revision for "
+                f"{topic_name} with three targeted questions."
+            )
+            analogy = (
+                f"Use a simple visual example to clarify "
+                f"{topic_name} before students retry a question."
+            )
+        elif success_rate < 75:
+            priority = "LOW"
+            audience = "PRACTICE_GROUP"
+            activity = (
+                f"Give students an application-based practice task "
+                f"for {topic_name}."
+            )
+            analogy = (
+                f"Connect {topic_name} to one practical situation "
+                "to strengthen understanding."
+            )
+        else:
+            priority = "ON_TRACK"
+            audience = "WHOLE_CLASS"
+            activity = (
+                f"Students are progressing well in {topic_name}; "
+                "continue with a challenge question."
+            )
+            analogy = (
+                f"Use a quick recap example for {topic_name} "
+                "before moving forward."
+            )
+
+        suggestions.append({
+            "topic": topic_name,
+            "successRate": Decimal(str(success_rate)),
+            "priority": priority,
+            "recommendedAudience": audience,
+            "activity": activity,
+            "analogy": analogy
+        })
+
+    suggestion_item = {
+        "pk": f"TEST#{test_id}",
+        "sk": "SUGGESTION#LATEST",
+        "entityType": "TEACHING_SUGGESTION",
+        "testId": test_id,
+        "source": "RULE_BASED_ANALYTICS",
+        "suggestions": suggestions,
+        "createdAt": now_iso()
+    }
+
+    table.put_item(Item=suggestion_item)
+
+    return {
+        "success": True,
+        "source": "rule-based-analytics",
+        "testId": test_id,
+        "studentsParticipated": analytics["studentsParticipated"],
+        "classAverage": analytics["averagePercentage"],
+        "suggestions": suggestions
+    }
+
+
+def lambda_handler(event, context):
+    try:
+        body = get_body(event)
+        action = get_action(event, body)
+
+        if action == "health":
+            data = {
+                "success": True,
+                "message": "easeSTU backend is working"
+            }
+
+        elif action == "db-check":
+            table.get_item(
+                Key={
+                    "pk": "SYSTEM#EASESTU",
+                    "sk": "CHECK#DYNAMODB"
+                }
+            )
+            data = {
+                "success": True,
+                "message": "DynamoDB connection is working"
+            }
+
+        elif action == "create-upload-url":
+            data = create_upload_url(event, body)
+
+        elif action == "create-test":
+            data = create_test(event, body)
+
+        elif action == "get-test":
+            data = get_test(event, body)
+
+        elif action == "score-student":
+            data = score_student(event, body)
+
+        elif action == "get-results":
+            data = get_results(event, body)
+
+        elif action == "get-analytics":
+            data = get_analytics(event, body)
+
+        elif action == "generate-mcqs":
+            data = generate_mcqs(event, body)
+
+        elif action == "teaching-suggestions":
+            data = generate_teaching_suggestions(event, body)
+
+        else:
+            raise ApiError(f"Unknown action: {action}", 404)
+
+        return response(200, data)
+
+    except ApiError as error:
+        return response(
+            error.status,
+            {
+                "success": False,
+                "error": error.message
+            }
+        )
+
+    except Exception as error:
+        print(f"Unexpected error: {str(error)}")
+
+        return response(
+            500,
+            {
+                "success": False,
+                "error": "Internal server error",
+                "details": str(error)
+            }
+        )
