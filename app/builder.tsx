@@ -1,8 +1,8 @@
 'use client';
 
 import {
-  useState,
-  type MouseEvent as ReactMouseEvent,
+    useState,
+    type MouseEvent as ReactMouseEvent,
 } from "react";
 import { Plus, Check, Printer, ArrowUp, Trash2, Sparkles } from 'lucide-react';
 import QRCode from 'qrcode';
@@ -187,6 +187,49 @@ export default function Builder({
             setBusy(false);
         }
     }
+    async function saveTestToAws() {
+        if (!title.trim()) {
+            notify('Enter a test title first.');
+            return;
+        }
+
+        if (!paper.length) {
+            notify('Add at least one question to the paper.');
+            return;
+        }
+
+        setBusy(true);
+
+        try {
+            const result = await callBackend<{
+                message: string;
+                test: {
+                    testId: string;
+                };
+            }>('create-test', {
+                title: title.trim(),
+                subject: 'Science',
+                className: 'Class 8A',
+                questions: paper.map((question) => ({
+                    text: question.text,
+                    options: question.options,
+                    answer: 'ABCD'[question.answer],
+                    topic: question.topic,
+                    explanation: question.explanation
+                }))
+            });
+
+            notify(`Test saved successfully: ${result.test.testId}`);
+        } catch (error) {
+            notify(
+                error instanceof Error
+                    ? error.message
+                    : 'Failed to save the test.'
+            );
+        } finally {
+            setBusy(false);
+        }
+    }
     async function print() {
         if (!paper.length) return;
 
@@ -355,11 +398,10 @@ export default function Builder({
                             </h3>
 
                             <div className="options-grid">
-                                {q.options.map((o, j) => (
-                                    <div key={j} className={j === q.answer ? 'correct' : ''}>
-                                        <b>{'ABCD'[j]}</b>
-                                        {o}
-                                        {j === q.answer && <Check size={15} />}
+                                {q.options.map((option, optionIndex) => (
+                                    <div key={optionIndex}>
+                                        <b>{'ABCD'[optionIndex]}</b>
+                                        {option}
                                     </div>
                                 ))}
                             </div>
@@ -373,26 +415,36 @@ export default function Builder({
 
                                 <Button
                                     variant="ghost"
-                                    onClick={() => setSuggestions(suggestions.filter((s) => s.id !== q.id))}
+                                    onClick={() =>
+                                        setSuggestions(
+                                            suggestions.filter((suggestion) => suggestion.id !== q.id)
+                                        )
+                                    }
                                 >
                                     Dismiss
                                 </Button>
 
                                 <Button
                                     variant="outline"
-                                    disabled={paper.some((s) => s.id === q.id)}
+                                    disabled={paper.some((question) => question.id === q.id)}
                                     onClick={() => setPaper([...paper, q])}
                                 >
-                                    {paper.some((s) => s.id === q.id) ? <Check size={15} /> : <Plus size={15} />}
-                                    {paper.some((s) => s.id === q.id) ? 'Added' : 'Add to paper'}
+                                    {paper.some((question) => question.id === q.id) ? (
+                                        <Check size={15} />
+                                    ) : (
+                                        <Plus size={15} />
+                                    )}
+
+                                    {paper.some((question) => question.id === q.id)
+                                        ? 'Added'
+                                        : 'Add to paper'}
                                 </Button>
                             </div>
                         </section>
                     ))}
                 </div>
-
                 {/* Sidebar: Paper summary */}
-                <aside className="panel paper-summary">
+                < aside className="panel paper-summary" >
                     <p className="eyebrow">YOUR QUESTION PAPER</p>
                     <h2>{title || 'Untitled assessment'}</h2>
                     <p>
@@ -448,7 +500,12 @@ export default function Builder({
                             <b>{paper.filter((q) => q.topic === t).length}</b>
                         </div>
                     ))}
-
+                    <Button
+                        disabled={!paper.length || busy}
+                        onClick={saveTestToAws}
+                    >
+                        {busy ? 'Saving…' : 'Save test to AWS'}
+                    </Button>
                     <div className="print-controls">
                         <Button
                             disabled={!paper.length || saving}
@@ -495,7 +552,7 @@ export default function Builder({
                         Export QR mapping
                     </Button>
                 </aside>
-            </div>
+            </div >
 
             {/* Question Editor Dialog */}
             <Dialog open={!!edit} onOpenChange={() => setEdit(null)}>
@@ -587,10 +644,10 @@ export default function Builder({
                         </form>
                     )}
                 </DialogContent>
-            </Dialog>
+            </Dialog >
 
             {/* Print Preview Area */}
-            <div className="print-area">
+            < div className="print-area" >
                 {mode === 'QR answer sheets' ? (
                     pages.map((s) => (
                         <section className="answer-page" key={s.id}>
@@ -650,7 +707,7 @@ export default function Builder({
                         ))}
                     </section>
                 )}
-            </div>
+            </div >
         </>
     );
 }

@@ -1,4 +1,5 @@
 "use client";
+import { callBackend } from "@/lib/aws-client";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { BrandLogo } from "@/components/brand-logo";
@@ -807,7 +808,7 @@ export default function Workspace() {
           {path === "/create-test" && (
             <Builder paper={paper} setPaper={setPaper} notify={setNotice} />
           )}
-          {path === "/tests" && <TeacherTests paperCount={paper.length} />}
+          {path === "/tests" && <TeacherTests />}
           {path === "/scan" && (
             <Scanner
               cls={cls}
@@ -1075,28 +1076,117 @@ export default function Workspace() {
     </SidebarProvider>
   );
 }
-function TeacherTests({ paperCount }: { paperCount: number }) {
-  const rows = [
-    [
-      "Assessment 03",
-      "Force and Pressure",
-      "Draft",
-      paperCount || 8,
-      "/create-test",
-    ],
-    ["Assessment 02", "Force and Pressure", "Completed", 10, "/results"],
-    ["Assessment 01", "Motion", "Completed", 12, "/results"],
-    ["Practice set", "Friction", "Ready", 8, "/scan"],
-  ];
+type SavedTest = {
+  testId: string;
+  title: string;
+  subject: string;
+  className: string;
+  totalQuestions: number;
+  status: string;
+  createdAt: string;
+};
+
+type ListTestsResponse = {
+  success: boolean;
+  count: number;
+  tests: SavedTest[];
+};
+type OpenedTestQuestion = {
+  number?: number;
+  text: string;
+  options?: string[];
+  answer?: string;
+  topic?: string;
+  explanation?: string;
+};
+
+type OpenedTestDetails = SavedTest & {
+  questions?: OpenedTestQuestion[];
+};
+
+type OpenedTestResponse = {
+  test: OpenedTestDetails;
+};
+
+function TeacherTests() {
+  const [tests, setTests] = useState<SavedTest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  const [selectedTest, setSelectedTest] =
+    useState<OpenedTestDetails | null>(null);
+
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    callBackend<ListTestsResponse>("list-tests")
+      .then((data) => {
+        if (!cancelled) {
+          setTests(data.tests ?? []);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setLoadError(
+            error instanceof Error
+              ? error.message
+              : "Could not load saved tests.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function openTest(testId: string) {
+    setDetailsOpen(true);
+    setDetailsLoading(true);
+    setDetailsError("");
+    setSelectedTest(null);
+
+    try {
+      const data = await callBackend<OpenedTestResponse>("get-test", {
+        testId,
+      });
+
+      setSelectedTest(data.test);
+    } catch (error) {
+      setDetailsError(
+        error instanceof Error
+          ? error.message
+          : "Could not load the test.",
+      );
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
+
   return (
     <>
       <Heading
         eyebrow="EVERY ASSESSMENT, ONE WORKSPACE"
         title="Tests"
-        description="Draft, prepare, process, and review each test without scattering its tools across the sidebar."
+        description="Create assessments and access tests saved securely in AWS DynamoDB."
       />
+
       <div className="context-row">
-        <span>Class 8A · Science · 4 tests</span>
+        <span>
+          {loading
+            ? "Loading saved tests…"
+            : `${tests.length} saved test${tests.length === 1 ? "" : "s"}`}
+        </span>
+
         <Button asChild>
           <a href="/create-test">
             <Plus size={16} />
@@ -1104,61 +1194,183 @@ function TeacherTests({ paperCount }: { paperCount: number }) {
           </a>
         </Button>
       </div>
+
       <section className="panel">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Test</TableHead>
-              <TableHead>Topic</TableHead>
-              <TableHead>Questions</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Inside this test</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map(([name, topic, status, count, href]: any) => (
-              <TableRow key={name}>
-                <TableCell>
-                  <strong>{name}</strong>
-                  <small className="cell-note">Class 8A · Science</small>
-                </TableCell>
-                <TableCell>{topic}</TableCell>
-                <TableCell>{count}</TableCell>
-                <TableCell>
-                  <Tag
-                    tone={
-                      status === "Completed"
-                        ? "teal"
-                        : status === "Ready"
-                          ? "blue"
-                          : "neutral"
-                    }
-                  >
-                    {status}
-                  </Tag>
-                </TableCell>
-                <TableCell>
-                  <Button asChild size="sm" variant="outline">
-                    <a href={href}>
-                      {status === "Draft"
-                        ? "Edit questions"
-                        : status === "Completed"
-                          ? "Results & answer key"
-                          : "Print & process"}
-                      <ChevronRight size={14} />
-                    </a>
-                  </Button>
-                </TableCell>
+        {loading && <p className="empty">Loading tests from AWS…</p>}
+
+        {!loading && loadError && (
+          <p className="empty">Unable to load tests: {loadError}</p>
+        )}
+
+        {!loading && !loadError && tests.length === 0 && (
+          <p className="empty">
+            No saved tests yet. Create and save your first assessment.
+          </p>
+        )}
+
+        {!loading && !loadError && tests.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Test</TableHead>
+                <TableHead>Subject</TableHead>
+                <TableHead>Class</TableHead>
+                <TableHead>Questions</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Action</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+
+            <TableBody>
+              {tests.map((test) => (
+                <TableRow key={test.testId}>
+                  <TableCell>
+                    <strong>{test.title}</strong>
+
+                    <small className="cell-note">
+                      {test.testId}
+                      {test.createdAt
+                        ? ` · ${new Date(
+                            test.createdAt,
+                          ).toLocaleDateString()}`
+                        : ""}
+                    </small>
+                  </TableCell>
+
+                  <TableCell>{test.subject || "—"}</TableCell>
+
+                  <TableCell>{test.className || "—"}</TableCell>
+
+                  <TableCell>{test.totalQuestions}</TableCell>
+
+                  <TableCell>
+                    <Tag tone={test.status === "ACTIVE" ? "teal" : "neutral"}>
+                      {test.status}
+                    </Tag>
+                  </TableCell>
+
+                  <TableCell>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openTest(test.testId)}
+                    >
+                      Open test
+                      <ChevronRight size={14} />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </section>
+
       <p className="privacy-note">
         <ShieldCheck size={16} />
-        Question bank, answer key, printable paper, QR sheet, and downloads live
-        inside each test.
+        These tests are loaded from the secured easeSTU DynamoDB database.
       </p>
+
+      <Dialog
+        open={detailsOpen}
+        onOpenChange={(open) => {
+          setDetailsOpen(open);
+
+          if (!open) {
+            setSelectedTest(null);
+            setDetailsError("");
+          }
+        }}
+      >
+        <DialogContent
+          style={{
+            maxWidth: "760px",
+            maxHeight: "85vh",
+            overflowY: "auto",
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {selectedTest?.title ?? "Test details"}
+            </DialogTitle>
+
+            <DialogDescription>
+              {selectedTest
+                ? `${selectedTest.className || "No class"} · ${
+                    selectedTest.subject || "No subject"
+                  } · ${selectedTest.totalQuestions} questions`
+                : "Loading the selected assessment from AWS."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {detailsLoading && (
+            <p className="empty">Loading test from AWS…</p>
+          )}
+
+          {!detailsLoading && detailsError && (
+            <p className="empty">
+              Unable to open test: {detailsError}
+            </p>
+          )}
+
+          {!detailsLoading &&
+            !detailsError &&
+            selectedTest &&
+            (!selectedTest.questions ||
+              selectedTest.questions.length === 0) && (
+              <p className="empty">
+                This test does not contain any saved questions.
+              </p>
+            )}
+
+          {!detailsLoading &&
+            !detailsError &&
+            selectedTest?.questions?.map((question, questionIndex) => (
+              <section
+                className="panel question-card"
+                key={`${selectedTest.testId}-${questionIndex}`}
+              >
+                <div className="question-meta">
+                  <Tag tone="blue">
+                    {question.topic || "General"}
+                  </Tag>
+
+                  <span>
+                    Question {question.number ?? questionIndex + 1}
+                  </span>
+                </div>
+
+                <h3>
+                  {question.number ?? questionIndex + 1}.{" "}
+                  {question.text}
+                </h3>
+
+                <div className="options-grid">
+                  {(question.options ?? []).map(
+                    (option, optionIndex) => (
+                      <div key={optionIndex}>
+                        <b>{"ABCD"[optionIndex]}</b>
+                        {option}
+                      </div>
+                    ),
+                  )}
+                </div>
+
+                <p>
+                  <strong>
+                    Correct answer: {question.answer || "Not provided"}
+                  </strong>
+                </p>
+
+                {question.explanation && (
+                  <p className="explanation">
+                    {question.explanation}
+                  </p>
+                )}
+              </section>
+            ))}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
