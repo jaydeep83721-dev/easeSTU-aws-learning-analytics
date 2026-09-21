@@ -167,6 +167,16 @@ export default function Workspace() {
   const [topic, setTopic] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [group, setGroup] = useState("All students");
+  const [resultTestId, setResultTestId] = useState("");
+
+  useEffect(() => {
+    if (path === "/results") {
+      const params = new URLSearchParams(window.location.search);
+      setResultTestId(params.get("testId") || "");
+    } else {
+      setResultTestId("");
+    }
+  }, [path]);
   useEffect(() => {
     try {
       const session = JSON.parse(
@@ -250,30 +260,30 @@ export default function Workspace() {
   const nav =
     role === "Teacher"
       ? [
-          ["/dashboard", "Overview", LayoutDashboard],
-          ["/create-test", "Create Test", FileText],
-          ["/tests", "Tests", ClipboardList],
-          ["/scan", "Scan & Process", ScanLine],
-          ["/results", "Results & Insights", ChartSpline],
-          ["/review", "Review & Support", MessagesSquare],
-          ["/teacher-settings", "Profile & Settings", UserRoundCog],
-        ]
+        ["/dashboard", "Overview", LayoutDashboard],
+        ["/create-test", "Create Test", FileText],
+        ["/tests", "Tests", ClipboardList],
+        ["/scan", "Scan & Process", ScanLine],
+        ["/results", "Results & Insights", ChartSpline],
+        ["/review", "Review & Support", MessagesSquare],
+        ["/teacher-settings", "Profile & Settings", UserRoundCog],
+      ]
       : role === "Parent"
         ? [
-            ["/parent", "Home", Home],
-            ["/parent/progress", "My Child’s Progress", TrendingUp],
-            ["/parent/assessments", "Assessments", ListChecks],
-            ["/parent/support", "Support Notes", HeartHandshake],
-            ["/parent/settings", "Profile & Settings", UserRoundCog],
-          ]
+          ["/parent", "Home", Home],
+          ["/parent/progress", "My Child’s Progress", TrendingUp],
+          ["/parent/assessments", "Assessments", ListChecks],
+          ["/parent/support", "Support Notes", HeartHandshake],
+          ["/parent/settings", "Profile & Settings", UserRoundCog],
+        ]
         : [
-            ["/principal", "Overview", LayoutDashboard],
-            ["/principal/classes", "Class Performance", School],
-            ["/principal/gaps", "Learning Gaps", Layers3],
-            ["/principal/trends", "Progress & Trends", TrendingUp],
-            ["/principal/reports", "Reports", FileDown],
-            ["/principal/settings", "Profile & Settings", UserRoundCog],
-          ];
+          ["/principal", "Overview", LayoutDashboard],
+          ["/principal/classes", "Class Performance", School],
+          ["/principal/gaps", "Learning Gaps", Layers3],
+          ["/principal/trends", "Progress & Trends", TrendingUp],
+          ["/principal/reports", "Reports", FileDown],
+          ["/principal/settings", "Profile & Settings", UserRoundCog],
+        ];
   const filtered = data.results.filter(
     (s) =>
       (s.name || "").toLowerCase().includes(search.toLowerCase()) &&
@@ -285,8 +295,8 @@ export default function Workspace() {
             : s.score >= 80)),
   );
   const strongest = data.concepts.reduce((a, b) =>
-      a.success > b.success ? a : b,
-    ),
+    a.success > b.success ? a : b,
+  ),
     weakest = data.concepts.reduce((a, b) => (a.success < b.success ? a : b)),
     needsSupport = data.results.filter((s) => s.score < 50).length;
   function messageFor(s: (typeof data.results)[number]) {
@@ -306,18 +316,18 @@ export default function Workspace() {
     download(
       "class-" + cls + "-results.csv",
       "Student ID,Name,Score," +
-        topics.join(",") +
-        "\n" +
-        data.results
-          .map((s) =>
-            [
-              s.studentId,
-              s.name,
-              s.score,
-              ...topics.map((t) => s.scores[t]),
-            ].join(","),
-          )
-          .join("\n"),
+      topics.join(",") +
+      "\n" +
+      data.results
+        .map((s) =>
+          [
+            s.studentId,
+            s.name,
+            s.score,
+            ...topics.map((t) => s.scores[t]),
+          ].join(","),
+        )
+        .join("\n"),
       "text/csv",
     );
   }
@@ -407,404 +417,409 @@ export default function Workspace() {
           </div>
         </header>
         <main className="main-content">
-          {(path === "/dashboard" || path === "/results") && (
-            <>
-              <div className="page-heading">
-                <div>
-                  <p className="eyebrow">YOUR CLASS, AT A GLANCE</p>
-                  <h1>
-                    {path === "/dashboard"
-                      ? "A clearer picture of learning."
-                      : "Results & Insights"}
-                  </h1>
-                  <p>
-                    See what’s clicking, and where a little support can help.
-                  </p>
-                </div>
-                <Button asChild>
-                  <a href="/create-test">
-                    <Plus size={17} />
-                    Create Test
-                  </a>
-                </Button>
-              </div>
-              <div className="context-row">
-                <div className="context-left">
-                  <Choice
-                    value={"Class " + cls}
-                    onChange={(s) => setCls(s.slice(-2))}
-                    options={["Class 8A", "Class 8B"]}
-                    label="Class"
-                  />
-                  <span className="divider" />
-                  <BookOpen size={16} />
-                  <strong>Science</strong>
-                  <span className="muted">/</span>
-                  <span>Force and Pressure</span>
-                  <Tag tone="neutral">Assessment 02</Tag>
-                </div>
-                <Button variant="outline" onClick={exportResults}>
-                  <Download size={15} />
-                  Export results
-                </Button>
-              </div>
-              <div className="stats-grid">
-                {[
-                  [
-                    Users,
-                    "Class average",
-                    data.average + "%",
-                    data.average - prev.average + " pts from previous test",
-                  ],
-                  [
-                    ArrowUpRight,
-                    "Strongest topic",
-                    strongest.success + "%",
-                    strongest.topic,
-                  ],
-                  [
-                    Lightbulb,
-                    "Weakest topic",
-                    weakest.success + "%",
-                    weakest.topic,
-                  ],
-                  [Users, "Need support", needsSupport, "Students below 50%"],
-                ].map(([Icon, label, value, hint]: any, i) => (
-                  <section className="stat" key={label}>
-                    <div className="stat-label">
-                      {label}
-                      <Icon size={17} />
-                    </div>
-                    <div className="stat-value">{value}</div>
-                    <p className={i === 1 ? "positive" : ""}>
-                      {i === 1 && <ArrowUpRight size={13} />} {hint}
+          {path === "/results" && resultTestId && (
+            <AwsResultsPanel testId={resultTestId} />
+          )}
+
+          {(path === "/dashboard" ||
+            (path === "/results" && !resultTestId)) && (
+              <>
+                <div className="page-heading">
+                  <div>
+                    <p className="eyebrow">YOUR CLASS, AT A GLANCE</p>
+                    <h1>
+                      {path === "/dashboard"
+                        ? "A clearer picture of learning."
+                        : "Results & Insights"}
+                    </h1>
+                    <p>
+                      See what’s clicking, and where a little support can help.
                     </p>
-                  </section>
-                ))}
-              </div>
-              {path === "/dashboard" && (
-                <div className="workflow-strip" aria-label="Teacher work queue">
-                  <div>
-                    <span>Assigned classes</span>
-                    <strong>2</strong>
-                    <small>8A and 8B</small>
                   </div>
-                  <div>
-                    <span>Tests conducted</span>
-                    <strong>4</strong>
-                    <small>This term</small>
-                  </div>
-                  <a href="/scan">
-                    <span>PDF processing</span>
-                    <strong>1</strong>
-                    <small>
-                      View pipeline <ChevronRight size={13} />
-                    </small>
-                  </a>
-                  <a href="/review">
-                    <span>Manual reviews</span>
-                    <strong>3</strong>
-                    <small>
-                      Needs attention <ChevronRight size={13} />
-                    </small>
-                  </a>
+                  <Button asChild>
+                    <a href="/create-test">
+                      <Plus size={17} />
+                      Create Test
+                    </a>
+                  </Button>
                 </div>
-              )}
-              {path === "/dashboard" ? (
-                <>
-                  <div className="analysis-grid">
-                    <section className="panel">
-                      <div className="panel-head">
-                        <div>
-                          <h2>Understanding, topic by topic</h2>
-                          <p>Average performance across assessed students</p>
+                <div className="context-row">
+                  <div className="context-left">
+                    <Choice
+                      value={"Class " + cls}
+                      onChange={(s) => setCls(s.slice(-2))}
+                      options={["Class 8A", "Class 8B"]}
+                      label="Class"
+                    />
+                    <span className="divider" />
+                    <BookOpen size={16} />
+                    <strong>Science</strong>
+                    <span className="muted">/</span>
+                    <span>Force and Pressure</span>
+                    <Tag tone="neutral">Assessment 02</Tag>
+                  </div>
+                  <Button variant="outline" onClick={exportResults}>
+                    <Download size={15} />
+                    Export results
+                  </Button>
+                </div>
+                <div className="stats-grid">
+                  {[
+                    [
+                      Users,
+                      "Class average",
+                      data.average + "%",
+                      data.average - prev.average + " pts from previous test",
+                    ],
+                    [
+                      ArrowUpRight,
+                      "Strongest topic",
+                      strongest.success + "%",
+                      strongest.topic,
+                    ],
+                    [
+                      Lightbulb,
+                      "Weakest topic",
+                      weakest.success + "%",
+                      weakest.topic,
+                    ],
+                    [Users, "Need support", needsSupport, "Students below 50%"],
+                  ].map(([Icon, label, value, hint]: any, i) => (
+                    <section className="stat" key={label}>
+                      <div className="stat-label">
+                        {label}
+                        <Icon size={17} />
+                      </div>
+                      <div className="stat-value">{value}</div>
+                      <p className={i === 1 ? "positive" : ""}>
+                        {i === 1 && <ArrowUpRight size={13} />} {hint}
+                      </p>
+                    </section>
+                  ))}
+                </div>
+                {path === "/dashboard" && (
+                  <div className="workflow-strip" aria-label="Teacher work queue">
+                    <div>
+                      <span>Assigned classes</span>
+                      <strong>2</strong>
+                      <small>8A and 8B</small>
+                    </div>
+                    <div>
+                      <span>Tests conducted</span>
+                      <strong>4</strong>
+                      <small>This term</small>
+                    </div>
+                    <a href="/scan">
+                      <span>PDF processing</span>
+                      <strong>1</strong>
+                      <small>
+                        View pipeline <ChevronRight size={13} />
+                      </small>
+                    </a>
+                    <a href="/review">
+                      <span>Manual reviews</span>
+                      <strong>3</strong>
+                      <small>
+                        Needs attention <ChevronRight size={13} />
+                      </small>
+                    </a>
+                  </div>
+                )}
+                {path === "/dashboard" ? (
+                  <>
+                    <div className="analysis-grid">
+                      <section className="panel">
+                        <div className="panel-head">
+                          <div>
+                            <h2>Understanding, topic by topic</h2>
+                            <p>Average performance across assessed students</p>
+                          </div>
+                          <Choice
+                            label="Support threshold"
+                            value={threshold + "% threshold"}
+                            options={[
+                              "40% threshold",
+                              "50% threshold",
+                              "60% threshold",
+                            ]}
+                            onChange={(s) => setThreshold(s.slice(0, 2))}
+                          />
                         </div>
-                        <Choice
-                          label="Support threshold"
-                          value={threshold + "% threshold"}
-                          options={[
-                            "40% threshold",
-                            "50% threshold",
-                            "60% threshold",
-                          ]}
-                          onChange={(s) => setThreshold(s.slice(0, 2))}
+                        <div className="chart-legend">
+                          <span>
+                            <i className="teal-dot" />
+                            Concept performance
+                          </span>
+                          <span>Click a topic to explore</span>
+                        </div>
+                        <div className="concept-list">
+                          {data.concepts.map((c) => (
+                            <button
+                              className="concept-row"
+                              key={c.topic}
+                              onClick={() => setTopic(c.topic)}
+                            >
+                              <div className="concept-label">
+                                <strong>{c.topic}</strong>
+                                <b>{c.success}%</b>
+                              </div>
+                              <div className="track">
+                                <span
+                                  style={{
+                                    width: c.success + "%",
+                                    background:
+                                      c.success < 50 ? "#d5a04e" : "#138b81",
+                                  }}
+                                />
+                              </div>
+                              <div className="concept-foot">
+                                <span>
+                                  {c.affected.length} of {subs.length} need
+                                  support
+                                </span>
+                                <span>
+                                  {c.action}
+                                  <ChevronRight size={13} />
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="panel-foot">
+                          <ShieldCheck size={15} />
+                          Calculated from marked answers. Support threshold: below{" "}
+                          {threshold}%.
+                        </div>
+                      </section>
+                      <section className="insight-panel">
+                        <span className="insight-kicker">
+                          <Sparkles size={16} /> A CONCEPT CONNECTION
+                        </span>
+                        <h2>
+                          A different example.
+                          <br />A familiar idea.
+                        </h2>
+                        <Tag tone="amber">Pressure & area</Tag>
+                        <p className="insight-intro">
+                          {data.concepts[2].affected.length} students could use a
+                          little more support with this concept.
+                        </p>
+                        <div className="analogy">
+                          <Lightbulb size={21} />
+                          <div>
+                            <strong>Think of a school bag.</strong>
+                            <p>
+                              Wide straps spread the same weight over a larger
+                              area, making the bag more comfortable. A simple way
+                              to connect area and pressure.
+                            </p>
+                          </div>
+                        </div>
+                        <p className="respect">
+                          An optional example to use or adapt. You know your
+                          classroom best.
+                        </p>
+                        <Button
+                          variant="outline"
+                          onClick={() => setTopic(topics[2])}
+                        >
+                          Explore this concept
+                          <ArrowRight size={16} />
+                        </Button>
+                        <small className="sample-label">
+                          Sample suggestion · Bedrock not connected
+                        </small>
+                      </section>
+                    </div>
+                    <div className="lower-grid">
+                      <section className="panel">
+                        <div className="panel-head">
+                          <div>
+                            <h2>Progress worth noticing</h2>
+                            <p>Same concepts, two synthetic assessments</p>
+                          </div>
+                          <Tag>+{data.average - prev.average} points</Tag>
+                        </div>
+                        <div className="progress-chart">
+                          {topics.map((t, i) => (
+                            <div className="progress-column" key={t}>
+                              <div className="bars">
+                                <div
+                                  style={{
+                                    height: prev.concepts[i].success * 1.35,
+                                  }}
+                                >
+                                  <span>{prev.concepts[i].success}%</span>
+                                </div>
+                                <div
+                                  style={{
+                                    height: data.concepts[i].success * 1.35,
+                                  }}
+                                >
+                                  <span>{data.concepts[i].success}%</span>
+                                </div>
+                              </div>
+                              <small>{t}</small>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="chart-legend bottom">
+                          <span>
+                            <i className="gray-dot" />
+                            Previous assessment
+                          </span>
+                          <span>
+                            <i className="teal-dot" />
+                            Current assessment
+                          </span>
+                        </div>
+                      </section>
+                      <section className="panel next-panel">
+                        <div className="panel-head">
+                          <h2>Your next steps</h2>
+                        </div>
+                        {[
+                          [
+                            "/scan",
+                            ScanLine,
+                            "Process answer sheets",
+                            "Bring offline answers into focus",
+                          ],
+                          [
+                            "/review",
+                            BookOpen,
+                            "Review parent messages",
+                            "Encouragement, in your words",
+                          ],
+                          [
+                            "/results",
+                            Users,
+                            "Look a little closer",
+                            "Individual topic performance",
+                          ],
+                        ].map(([href, Icon, title, desc]: any) => (
+                          <a href={href} key={href}>
+                            <span className="step-icon">
+                              <Icon size={20} />
+                            </span>
+                            <div>
+                              <strong>{title}</strong>
+                              <p>{desc}</p>
+                            </div>
+                            <ChevronRight size={17} />
+                          </a>
+                        ))}
+                      </section>
+                    </div>
+                  </>
+                ) : (
+                  <section className="panel">
+                    <div className="panel-head">
+                      <div>
+                        <h2>Every student, a next step</h2>
+                        <p>
+                          {filtered.length} assessed students · missing sheets are
+                          not automatically marked absent
+                        </p>
+                      </div>
+                    </div>
+                    <div className="table-tools">
+                      <div className="search-box">
+                        <Search size={16} />
+                        <Input
+                          aria-label="Search students"
+                          placeholder="Search students…"
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
                         />
                       </div>
-                      <div className="chart-legend">
-                        <span>
-                          <i className="teal-dot" />
-                          Concept performance
-                        </span>
-                        <span>Click a topic to explore</span>
-                      </div>
-                      <div className="concept-list">
-                        {data.concepts.map((c) => (
-                          <button
-                            className="concept-row"
-                            key={c.topic}
-                            onClick={() => setTopic(c.topic)}
-                          >
-                            <div className="concept-label">
-                              <strong>{c.topic}</strong>
-                              <b>{c.success}%</b>
-                            </div>
-                            <div className="track">
-                              <span
-                                style={{
-                                  width: c.success + "%",
-                                  background:
-                                    c.success < 50 ? "#d5a04e" : "#138b81",
-                                }}
-                              />
-                            </div>
-                            <div className="concept-foot">
-                              <span>
-                                {c.affected.length} of {subs.length} need
-                                support
-                              </span>
-                              <span>
-                                {c.action}
-                                <ChevronRight size={13} />
-                              </span>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                      <div className="panel-foot">
-                        <ShieldCheck size={15} />
-                        Calculated from marked answers. Support threshold: below{" "}
-                        {threshold}%.
-                      </div>
-                    </section>
-                    <section className="insight-panel">
-                      <span className="insight-kicker">
-                        <Sparkles size={16} /> A CONCEPT CONNECTION
-                      </span>
-                      <h2>
-                        A different example.
-                        <br />A familiar idea.
-                      </h2>
-                      <Tag tone="amber">Pressure & area</Tag>
-                      <p className="insight-intro">
-                        {data.concepts[2].affected.length} students could use a
-                        little more support with this concept.
-                      </p>
-                      <div className="analogy">
-                        <Lightbulb size={21} />
-                        <div>
-                          <strong>Think of a school bag.</strong>
-                          <p>
-                            Wide straps spread the same weight over a larger
-                            area, making the bag more comfortable. A simple way
-                            to connect area and pressure.
-                          </p>
-                        </div>
-                      </div>
-                      <p className="respect">
-                        An optional example to use or adapt. You know your
-                        classroom best.
-                      </p>
-                      <Button
-                        variant="outline"
-                        onClick={() => setTopic(topics[2])}
-                      >
-                        Explore this concept
-                        <ArrowRight size={16} />
-                      </Button>
-                      <small className="sample-label">
-                        Sample suggestion · Bedrock not connected
-                      </small>
-                    </section>
-                  </div>
-                  <div className="lower-grid">
-                    <section className="panel">
-                      <div className="panel-head">
-                        <div>
-                          <h2>Progress worth noticing</h2>
-                          <p>Same concepts, two synthetic assessments</p>
-                        </div>
-                        <Tag>+{data.average - prev.average} points</Tag>
-                      </div>
-                      <div className="progress-chart">
-                        {topics.map((t, i) => (
-                          <div className="progress-column" key={t}>
-                            <div className="bars">
-                              <div
-                                style={{
-                                  height: prev.concepts[i].success * 1.35,
-                                }}
-                              >
-                                <span>{prev.concepts[i].success}%</span>
-                              </div>
-                              <div
-                                style={{
-                                  height: data.concepts[i].success * 1.35,
-                                }}
-                              >
-                                <span>{data.concepts[i].success}%</span>
-                              </div>
-                            </div>
-                            <small>{t}</small>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="chart-legend bottom">
-                        <span>
-                          <i className="gray-dot" />
-                          Previous assessment
-                        </span>
-                        <span>
-                          <i className="teal-dot" />
-                          Current assessment
-                        </span>
-                      </div>
-                    </section>
-                    <section className="panel next-panel">
-                      <div className="panel-head">
-                        <h2>Your next steps</h2>
-                      </div>
-                      {[
-                        [
-                          "/scan",
-                          ScanLine,
-                          "Process answer sheets",
-                          "Bring offline answers into focus",
-                        ],
-                        [
-                          "/review",
-                          BookOpen,
-                          "Review parent messages",
-                          "Encouragement, in your words",
-                        ],
-                        [
-                          "/results",
-                          Users,
-                          "Look a little closer",
-                          "Individual topic performance",
-                        ],
-                      ].map(([href, Icon, title, desc]: any) => (
-                        <a href={href} key={href}>
-                          <span className="step-icon">
-                            <Icon size={20} />
-                          </span>
-                          <div>
-                            <strong>{title}</strong>
-                            <p>{desc}</p>
-                          </div>
-                          <ChevronRight size={17} />
-                        </a>
-                      ))}
-                    </section>
-                  </div>
-                </>
-              ) : (
-                <section className="panel">
-                  <div className="panel-head">
-                    <div>
-                      <h2>Every student, a next step</h2>
-                      <p>
-                        {filtered.length} assessed students · missing sheets are
-                        not automatically marked absent
-                      </p>
-                    </div>
-                  </div>
-                  <div className="table-tools">
-                    <div className="search-box">
-                      <Search size={16} />
-                      <Input
-                        aria-label="Search students"
-                        placeholder="Search students…"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
+                      <Choice
+                        label="Performance group"
+                        value={group}
+                        onChange={setGroup}
+                        options={[
+                          "All students",
+                          "Concept secure",
+                          "Developing well",
+                          "Needs support",
+                        ]}
                       />
                     </div>
-                    <Choice
-                      label="Performance group"
-                      value={group}
-                      onChange={setGroup}
-                      options={[
-                        "All students",
-                        "Concept secure",
-                        "Developing well",
-                        "Needs support",
-                      ]}
-                    />
-                  </div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Student</TableHead>
-                        <TableHead>Score</TableHead>
-                        <TableHead>Concepts needing attention</TableHead>
-                        <TableHead>Progress group</TableHead>
-                        <TableHead />
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filtered.map((s) => (
-                        <TableRow key={s.studentId}>
-                          <TableCell>
-                            <div className="person">
-                              <span className="avatar small">
-                                {s.name?.[0]}
-                              </span>
-                              <div>
-                                <strong>{s.name}</strong>
-                                <small>
-                                  {s.studentId} · Roll {s.roll}
-                                </small>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <strong>{s.score}%</strong>
-                          </TableCell>
-                          <TableCell>
-                            {topics
-                              .filter((t) => s.scores[t] < Number(threshold))
-                              .join(", ") || "All assessed concepts secure"}
-                          </TableCell>
-                          <TableCell>
-                            <Tag
-                              tone={
-                                s.score >= 80
-                                  ? "teal"
-                                  : s.score >= 50
-                                    ? "blue"
-                                    : "amber"
-                              }
-                            >
-                              {s.score >= 80
-                                ? "Concept secure"
-                                : s.score >= 50
-                                  ? "Developing well"
-                                  : "Needs support"}
-                            </Tag>
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              aria-label={"Draft for " + s.name}
-                              onClick={() => {
-                                makeDraft(s);
-                                setNotice("Draft ready in Parent messages.");
-                              }}
-                            >
-                              <FileText size={16} />
-                            </Button>
-                          </TableCell>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Student</TableHead>
+                          <TableHead>Score</TableHead>
+                          <TableHead>Concepts needing attention</TableHead>
+                          <TableHead>Progress group</TableHead>
+                          <TableHead />
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                  {!filtered.length && (
-                    <p className="empty">No students match these filters.</p>
-                  )}
-                </section>
-              )}
-            </>
-          )}
+                      </TableHeader>
+                      <TableBody>
+                        {filtered.map((s) => (
+                          <TableRow key={s.studentId}>
+                            <TableCell>
+                              <div className="person">
+                                <span className="avatar small">
+                                  {s.name?.[0]}
+                                </span>
+                                <div>
+                                  <strong>{s.name}</strong>
+                                  <small>
+                                    {s.studentId} · Roll {s.roll}
+                                  </small>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <strong>{s.score}%</strong>
+                            </TableCell>
+                            <TableCell>
+                              {topics
+                                .filter((t) => s.scores[t] < Number(threshold))
+                                .join(", ") || "All assessed concepts secure"}
+                            </TableCell>
+                            <TableCell>
+                              <Tag
+                                tone={
+                                  s.score >= 80
+                                    ? "teal"
+                                    : s.score >= 50
+                                      ? "blue"
+                                      : "amber"
+                                }
+                              >
+                                {s.score >= 80
+                                  ? "Concept secure"
+                                  : s.score >= 50
+                                    ? "Developing well"
+                                    : "Needs support"}
+                              </Tag>
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={"Draft for " + s.name}
+                                onClick={() => {
+                                  makeDraft(s);
+                                  setNotice("Draft ready in Parent messages.");
+                                }}
+                              >
+                                <FileText size={16} />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {!filtered.length && (
+                      <p className="empty">No students match these filters.</p>
+                    )}
+                  </section>
+                )}
+              </>
+            )}
           {path === "/create-test" && (
             <Builder paper={paper} setPaper={setPaper} notify={setNotice} />
           )}
@@ -1091,6 +1106,313 @@ type ListTestsResponse = {
   count: number;
   tests: SavedTest[];
 };
+type AwsStudentResult = {
+  studentId: string;
+  studentName?: string;
+  correctAnswers: number;
+  totalQuestions: number;
+  percentage: number;
+  category: "STRONG" | "AVERAGE" | "NEEDS_SUPPORT";
+  topicBreakdown?: Record<
+    string,
+    {
+      correct: number;
+      total: number;
+    }
+  >;
+};
+
+type AwsResultsResponse = {
+  testId: string;
+  results: AwsStudentResult[];
+};
+type AwsTopicAnalytics = {
+  topic: string;
+  correct: number;
+  total: number;
+  successRate: number;
+  status: "STRONG" | "AVERAGE" | "WEAK";
+};
+
+type AwsAnalyticsResponse = {
+  testId: string;
+  studentsParticipated: number;
+  averagePercentage: number;
+  highestPercentage: number;
+  lowestPercentage: number;
+  strongStudents: number;
+  averageStudents: number;
+  studentsNeedingSupport: number;
+  topicAnalytics: AwsTopicAnalytics[];
+};
+
+function AwsResultsPanel({ testId }: { testId: string }) {
+  const [results, setResults] = useState<AwsStudentResult[]>([]);
+  const [analytics, setAnalytics] =
+    useState<AwsAnalyticsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setLoading(true);
+    setErrorMessage("");
+
+    Promise.all([
+      callBackend<AwsResultsResponse>("get-results", {
+        testId,
+      }),
+      callBackend<AwsAnalyticsResponse>("get-analytics", {
+        testId,
+      }),
+    ])
+      .then(([resultsData, analyticsData]) => {
+        if (!cancelled) {
+          setResults(resultsData.results ?? []);
+          setAnalytics(analyticsData);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not load assessment analytics.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [testId]);
+
+  return (
+    <>
+      <Heading
+        eyebrow="REAL AWS ASSESSMENT RESULTS"
+        title="Results & Insights"
+        description={`Results securely loaded from DynamoDB for test ${testId}.`}
+      />
+
+      <div className="context-row">
+        <span>
+          {loading
+            ? "Loading results…"
+            : `${results.length} assessed student${results.length === 1 ? "" : "s"
+            }`}
+        </span>
+
+        <Button asChild variant="outline">
+          <a href="/tests">Back to tests</a>
+        </Button>
+      </div>
+      {!loading && !errorMessage && analytics && (
+        <div className="stats-grid">
+          <section className="stat">
+            <p className="stat-label">Students assessed</p>
+            <p className="stat-value">
+              {analytics.studentsParticipated}
+            </p>
+          </section>
+
+          <section className="stat">
+            <p className="stat-label">Class average</p>
+            <p className="stat-value">
+              {Number(analytics.averagePercentage).toFixed(1)}%
+            </p>
+          </section>
+
+          <section className="stat">
+            <p className="stat-label">Highest score</p>
+            <p className="stat-value">
+              {Number(analytics.highestPercentage).toFixed(1)}%
+            </p>
+          </section>
+
+          <section className="stat">
+            <p className="stat-label">Lowest score</p>
+            <p className="stat-value">
+              {Number(analytics.lowestPercentage).toFixed(1)}%
+            </p>
+          </section>
+        </div>
+      )}
+      <section className="panel">
+        {loading && (
+          <p className="empty">Loading results from AWS…</p>
+        )}
+
+        {!loading && errorMessage && (
+          <p className="empty">
+            Unable to load results: {errorMessage}
+          </p>
+        )}
+
+        {!loading &&
+          !errorMessage &&
+          results.length === 0 && (
+            <p className="empty">
+              No student results have been recorded for this test.
+            </p>
+          )}
+
+        {!loading &&
+          !errorMessage &&
+          results.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Student</TableHead>
+                  <TableHead>Correct answers</TableHead>
+                  <TableHead>Score</TableHead>
+                  <TableHead>Concepts needing attention</TableHead>
+                  <TableHead>Progress group</TableHead>
+                </TableRow>
+              </TableHeader>
+
+              <TableBody>
+                {results.map((result) => {
+                  const weakTopics = Object.entries(
+                    result.topicBreakdown ?? {},
+                  )
+                    .filter(
+                      ([, values]) =>
+                        Number(values.correct) <
+                        Number(values.total),
+                    )
+                    .map(([topicName]) => topicName);
+
+                  return (
+                    <TableRow key={result.studentId}>
+                      <TableCell>
+                        <strong>
+                          {result.studentName ||
+                            "Unnamed student"}
+                        </strong>
+
+                        <small className="cell-note">
+                          {result.studentId}
+                        </small>
+                      </TableCell>
+
+                      <TableCell>
+                        {result.correctAnswers}/
+                        {result.totalQuestions}
+                      </TableCell>
+
+                      <TableCell>
+                        <strong>
+                          {Number(result.percentage).toFixed(0)}%
+                        </strong>
+                      </TableCell>
+
+                      <TableCell>
+                        {weakTopics.length
+                          ? weakTopics.join(", ")
+                          : "All assessed concepts secure"}
+                      </TableCell>
+
+                      <TableCell>
+                        <Tag
+                          tone={
+                            result.category === "STRONG"
+                              ? "teal"
+                              : result.category === "AVERAGE"
+                                ? "blue"
+                                : "neutral"
+                          }
+                        >
+                          {result.category === "STRONG"
+                            ? "Strong"
+                            : result.category === "AVERAGE"
+                              ? "Developing well"
+                              : "Needs support"}
+                        </Tag>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+      </section>
+      {!loading &&
+        !errorMessage &&
+        analytics &&
+        analytics.topicAnalytics.length > 0 && (
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <h2>Concept performance</h2>
+                <p>
+                  Calculated from all student answers for this test.
+                </p>
+              </div>
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Concept</TableHead>
+                  <TableHead>Correct responses</TableHead>
+                  <TableHead>Success rate</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+
+              <TableBody>
+                {analytics.topicAnalytics.map((topic) => (
+                  <TableRow key={topic.topic}>
+                    <TableCell>
+                      <strong>{topic.topic}</strong>
+                    </TableCell>
+
+                    <TableCell>
+                      {topic.correct}/{topic.total}
+                    </TableCell>
+
+                    <TableCell>
+                      {Number(topic.successRate).toFixed(1)}%
+                    </TableCell>
+
+                    <TableCell>
+                      <Tag
+                        tone={
+                          topic.status === "STRONG"
+                            ? "teal"
+                            : topic.status === "AVERAGE"
+                              ? "blue"
+                              : "neutral"
+                        }
+                      >
+                        {topic.status === "WEAK"
+                          ? "Needs support"
+                          : topic.status === "AVERAGE"
+                            ? "Developing"
+                            : "Strong"}
+                      </Tag>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </section>
+        )}
+      <p className="privacy-note">
+        <ShieldCheck size={16} />
+        Scores and topic breakdowns are calculated by the secured
+        easeSTU Lambda backend.
+      </p>
+    </>
+  );
+}
 type OpenedTestQuestion = {
   number?: number;
   text: string;
@@ -1231,8 +1553,8 @@ function TeacherTests() {
                       {test.testId}
                       {test.createdAt
                         ? ` · ${new Date(
-                            test.createdAt,
-                          ).toLocaleDateString()}`
+                          test.createdAt,
+                        ).toLocaleDateString()}`
                         : ""}
                     </small>
                   </TableCell>
@@ -1296,9 +1618,8 @@ function TeacherTests() {
 
             <DialogDescription>
               {selectedTest
-                ? `${selectedTest.className || "No class"} · ${
-                    selectedTest.subject || "No subject"
-                  } · ${selectedTest.totalQuestions} questions`
+                ? `${selectedTest.className || "No class"} · ${selectedTest.subject || "No subject"
+                } · ${selectedTest.totalQuestions} questions`
                 : "Loading the selected assessment from AWS."}
             </DialogDescription>
           </DialogHeader>
@@ -1369,6 +1690,18 @@ function TeacherTests() {
                 )}
               </section>
             ))}
+          {selectedTest && !detailsLoading && !detailsError && (
+            <Button asChild>
+              <a
+                href={`/results?testId=${encodeURIComponent(
+                  selectedTest.testId,
+                )}`}
+              >
+                View student results
+                <ChevronRight size={14} />
+              </a>
+            </Button>
+          )}
         </DialogContent>
       </Dialog>
     </>
@@ -1632,7 +1965,7 @@ function Principal({ path }: { path: string }) {
   const total = cs.reduce((n, c) => n + c.results.length, 0),
     overall = Math.round(
       cs.reduce((n, c) => n + c.results.reduce((v, s) => v + s.score, 0), 0) /
-        total,
+      total,
     );
   if (path === "/principal/settings") return <SettingsPanel role="Principal" />;
   if (path === "/principal/classes")
@@ -1783,7 +2116,7 @@ function Principal({ path }: { path: string }) {
                   2,
                   Math.round(
                     (cs[0].concepts[i].success + cs[1].concepts[i].success) /
-                      20,
+                    20,
                   ),
                 )}{" "}
                 pts
@@ -1836,8 +2169,8 @@ function Principal({ path }: { path: string }) {
                   download(
                     file,
                     "Report,Value\n" +
-                      title +
-                      ",Synthetic demo\nGenerated,19 Sep 2026",
+                    title +
+                    ",Synthetic demo\nGenerated,19 Sep 2026",
                     "text/csv",
                   )
                 }
@@ -1953,3 +2286,7 @@ function Principal({ path }: { path: string }) {
     </>
   );
 }
+function setAnalytics(analyticsData: AwsAnalyticsResponse) {
+  throw new Error("Function not implemented.");
+}
+
