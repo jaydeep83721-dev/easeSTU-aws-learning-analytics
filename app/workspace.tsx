@@ -443,60 +443,7 @@ export default function Workspace() {
                     </a>
                   </Button>
                 </div>
-                <div className="context-row">
-                  <div className="context-left">
-                    <Choice
-                      value={"Class " + cls}
-                      onChange={(s) => setCls(s.slice(-2))}
-                      options={["Class 8A", "Class 8B"]}
-                      label="Class"
-                    />
-                    <span className="divider" />
-                    <BookOpen size={16} />
-                    <strong>Science</strong>
-                    <span className="muted">/</span>
-                    <span>Force and Pressure</span>
-                    <Tag tone="neutral">Assessment 02</Tag>
-                  </div>
-                  <Button variant="outline" onClick={exportResults}>
-                    <Download size={15} />
-                    Export results
-                  </Button>
-                </div>
-                <div className="stats-grid">
-                  {[
-                    [
-                      Users,
-                      "Class average",
-                      data.average + "%",
-                      data.average - prev.average + " pts from previous test",
-                    ],
-                    [
-                      ArrowUpRight,
-                      "Strongest topic",
-                      strongest.success + "%",
-                      strongest.topic,
-                    ],
-                    [
-                      Lightbulb,
-                      "Weakest topic",
-                      weakest.success + "%",
-                      weakest.topic,
-                    ],
-                    [Users, "Need support", needsSupport, "Students below 50%"],
-                  ].map(([Icon, label, value, hint]: any, i) => (
-                    <section className="stat" key={label}>
-                      <div className="stat-label">
-                        {label}
-                        <Icon size={17} />
-                      </div>
-                      <div className="stat-value">{value}</div>
-                      <p className={i === 1 ? "positive" : ""}>
-                        {i === 1 && <ArrowUpRight size={13} />} {hint}
-                      </p>
-                    </section>
-                  ))}
-                </div>
+                <AwsOverviewSnapshot />
                 {path === "/dashboard" && (
                   <div className="workflow-strip" aria-label="Teacher work queue">
                     <div>
@@ -1145,7 +1092,207 @@ type AwsAnalyticsResponse = {
   studentsNeedingSupport: number;
   topicAnalytics: AwsTopicAnalytics[];
 };
+function AwsOverviewSnapshot() {
+  const [latestTest, setLatestTest] = useState<SavedTest | null>(null);
+  const [analytics, setAnalytics] =
+    useState<AwsAnalyticsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOverview() {
+      try {
+        setLoading(true);
+        setErrorMessage("");
+
+        const testData =
+          await callBackend<ListTestsResponse>("list-tests");
+
+        const tests = [...(testData.tests ?? [])].sort(
+          (a, b) =>
+            new Date(b.createdAt ?? 0).getTime() -
+            new Date(a.createdAt ?? 0).getTime(),
+        );
+
+        const newestTest = tests[0];
+
+        if (!newestTest) {
+          if (!cancelled) {
+            setLatestTest(null);
+            setAnalytics(null);
+          }
+          return;
+        }
+
+        const analyticsData =
+          await callBackend<AwsAnalyticsResponse>("get-analytics", {
+            testId: newestTest.testId,
+          });
+
+        if (!cancelled) {
+          setLatestTest(newestTest);
+          setAnalytics(analyticsData);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Could not load the latest class analytics.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadOverview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <section className="panel">
+        <p className="empty">Loading the latest class analytics…</p>
+      </section>
+    );
+  }
+
+  if (errorMessage) {
+    return (
+      <section className="panel">
+        <p className="empty">
+          Unable to load dashboard analytics: {errorMessage}
+        </p>
+      </section>
+    );
+  }
+
+  if (!latestTest || !analytics) {
+    return (
+      <section className="panel">
+        <p className="empty">
+          No completed assessment analytics are available yet.
+        </p>
+      </section>
+    );
+  }
+
+  const topics = analytics.topicAnalytics ?? [];
+
+  const strongestTopic =
+    topics.length > 0
+      ? topics.reduce((best, topic) =>
+        topic.successRate > best.successRate ? topic : best,
+      )
+      : null;
+
+  const weakestTopic =
+    topics.length > 0
+      ? topics.reduce((weakest, topic) =>
+        topic.successRate < weakest.successRate ? topic : weakest,
+      )
+      : null;
+
+  return (
+    <>
+      <div className="context-row">
+        <div className="context-left">
+          <BookOpen size={16} />
+
+          <strong>{latestTest.subject || "Assessment"}</strong>
+
+          <span className="muted">/</span>
+
+          <span>{latestTest.title}</span>
+
+          <Tag tone="neutral">
+            {latestTest.className || "Class"}
+          </Tag>
+        </div>
+
+        <Button asChild variant="outline">
+          <a
+            href={`/results?testId=${encodeURIComponent(
+              latestTest.testId,
+            )}`}
+          >
+            View full results
+            <ChevronRight size={15} />
+          </a>
+        </Button>
+      </div>
+
+      <div className="stats-grid">
+        <section className="stat">
+          <div className="stat-label">
+            Class average
+            <Users size={17} />
+          </div>
+
+          <div className="stat-value">
+            {Number(analytics.averagePercentage).toFixed(1)}%
+          </div>
+
+          <p>{analytics.studentsParticipated} students assessed</p>
+        </section>
+
+        <section className="stat">
+          <div className="stat-label">
+            Strongest topic
+            <ArrowUpRight size={17} />
+          </div>
+
+          <div className="stat-value">
+            {strongestTopic
+              ? `${Number(strongestTopic.successRate).toFixed(1)}%`
+              : "—"}
+          </div>
+
+          <p className="positive">
+            {strongestTopic && <ArrowUpRight size={13} />}
+            {strongestTopic?.topic || "No topic data"}
+          </p>
+        </section>
+
+        <section className="stat">
+          <div className="stat-label">
+            Weakest topic
+            <Lightbulb size={17} />
+          </div>
+
+          <div className="stat-value">
+            {weakestTopic
+              ? `${Number(weakestTopic.successRate).toFixed(1)}%`
+              : "—"}
+          </div>
+
+          <p>{weakestTopic?.topic || "No topic data"}</p>
+        </section>
+
+        <section className="stat">
+          <div className="stat-label">
+            Need support
+            <Users size={17} />
+          </div>
+
+          <div className="stat-value">
+            {analytics.studentsNeedingSupport}
+          </div>
+
+          <p>Students below the support threshold</p>
+        </section>
+      </div>
+    </>
+  );
+}
 function AwsResultsPanel({ testId }: { testId: string }) {
   const [results, setResults] = useState<AwsStudentResult[]>([]);
   const [analytics, setAnalytics] =
